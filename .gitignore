@@ -1,0 +1,8 @@
+# Godot
+.godot/
+/android/
+export_presets.cfg
+
+# Builds
+*.apk
+*.aab
