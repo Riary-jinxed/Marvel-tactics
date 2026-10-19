@@ -31,6 +31,8 @@ var selected_hero = null
 var inspected = null
 var highlights: Array = []
 var busy := false
+var sprites := {}
+var sprite_feet := {}
 
 
 func _ready() -> void:
@@ -187,34 +189,75 @@ func _draw_grid() -> void:
 
 
 func _draw_units() -> void:
-	for u in state.units:
-		if not u.is_alive():
-			continue
-		var r := _tile_rect(u.pos)
-		var center := r.get_center() - Vector2(0, 3)
-		var col: Color = u.color
-		if u.burrowed:
-			col.a = 0.35
-		if u.is_hero():
-			draw_circle(center, 17, col)
-		else:
-			draw_rect(Rect2(center - Vector2(16, 16), Vector2(32, 32)), col)
-		if u == selected_hero or u == inspected:
-			draw_arc(center, 22, 0, TAU, 32, INK, 2)
-		_centered(u.short, center + Vector2(0, 6), 17, INK)
-		var hp_text := "%d" % u.hp
-		if u.shield > 0:
-			hp_text += " +%d" % u.shield
-		_centered(hp_text, Vector2(center.x, r.end.y - 1), 10, INK)
-		for i in u.frost:
-			draw_circle(r.position + Vector2(6 + i * 6, 6), 2.5, ICE_COLOR)
-		if u.frozen:
-			draw_rect(r.grow(-3), ICE_COLOR, false, 2)
-		if u.is_hero() and u.has_moved:
-			draw_circle(r.position + Vector2(TILE - 7, 7), 3, MUTED)
-		if not u.is_hero() and u.intent_target != null and u.intent_target.is_alive():
-			var intent := "%s %d" % [u.intent_target.short, u.attack_damage] if not u.frozen else "gelé"
-			_centered(intent, Vector2(center.x, r.position.y + 10), 10, TARGET_COLOR)
+	var alive: Array = state.units.filter(func(u): return u.is_alive())
+	# Les unités du bas passent devant : un sprite plus haut qu'une case déborde sur celle du dessus.
+	alive.sort_custom(func(a, b): return a.pos.y < b.pos.y)
+	for u in alive:
+		_draw_unit_body(u)
+	for u in alive:
+		_draw_unit_overlay(u)
+
+
+func _draw_unit_body(u) -> void:
+	var r := _tile_rect(u.pos)
+	var feet := Vector2(r.get_center().x, r.end.y - 6)
+	var tex: Texture2D = _sprite(u)
+	if tex != null:
+		var ring := INK if u == selected_hero else Color(0, 0, 0, 0.35)
+		draw_set_transform(feet, 0, Vector2(1, 0.35))
+		draw_circle(Vector2.ZERO, 17, ring)
+		draw_set_transform(Vector2.ZERO)
+		var offset: Vector2 = sprite_feet[u.id]
+		var tint := Color(1, 1, 1, 0.35) if u.burrowed else Color.WHITE
+		draw_texture(tex, (feet - offset).round(), tint)
+		return
+	var center := r.get_center() - Vector2(0, 3)
+	var col: Color = u.color
+	if u.burrowed:
+		col.a = 0.35
+	if u.is_hero():
+		draw_circle(center, 17, col)
+	else:
+		draw_rect(Rect2(center - Vector2(16, 16), Vector2(32, 32)), col)
+	if u == selected_hero or u == inspected:
+		draw_arc(center, 22, 0, TAU, 32, INK, 2)
+	_centered(u.short, center + Vector2(0, 6), 17, INK)
+
+
+func _draw_unit_overlay(u) -> void:
+	var r := _tile_rect(u.pos)
+	var hp_text := "%d" % u.hp
+	if u.shield > 0:
+		hp_text += " +%d" % u.shield
+	if _sprite(u) != null:
+		var w := font.get_string_size(hp_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x + 6
+		var badge := Rect2(r.end.x - w - 1, r.end.y - 13, w, 12)
+		draw_rect(badge, Color(0, 0, 0, 0.6))
+		_centered(hp_text, Vector2(badge.get_center().x, badge.end.y - 2), 10, INK)
+	else:
+		_centered(hp_text, Vector2(r.get_center().x, r.end.y - 1), 10, INK)
+	for i in u.frost:
+		draw_circle(r.position + Vector2(6 + i * 6, 6), 2.5, ICE_COLOR)
+	if u.frozen:
+		draw_rect(r.grow(-3), ICE_COLOR, false, 2)
+	if u.is_hero() and u.has_moved:
+		draw_circle(r.position + Vector2(6, r.size.y - 7), 3, MUTED)
+	if not u.is_hero() and u.intent_target != null and u.intent_target.is_alive():
+		var intent := "%s %d" % [u.intent_target.short, u.attack_damage] if not u.frozen else "gelé"
+		_centered(intent, Vector2(r.get_center().x, r.position.y + 10), 10, TARGET_COLOR)
+
+
+## Texture du héros si un sprite est défini, sinon null (forme placeholder).
+func _sprite(u) -> Texture2D:
+	if u.sprite_path == "":
+		return null
+	if not sprites.has(u.id):
+		var tex: Texture2D = load(u.sprite_path)
+		sprites[u.id] = tex
+		# Ancre aux pieds : bas des pixels opaques, centré horizontalement.
+		var used := tex.get_image().get_used_rect()
+		sprite_feet[u.id] = Vector2(tex.get_width() / 2.0, used.end.y)
+	return sprites[u.id]
 
 
 func _draw_detail() -> void:

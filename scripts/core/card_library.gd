@@ -67,4 +67,5 @@ func _make_unit(d: Dictionary) -> Unit:
 	unit.max_hp = int(d.hp)
 	unit.hp = unit.max_hp
 	unit.move_range = int(d.get("move", 2))
+	unit.sprite_path = d.get("sprite", "")
 	return unit

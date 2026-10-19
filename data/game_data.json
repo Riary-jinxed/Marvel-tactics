@@ -2,10 +2,12 @@
 	"heroes": {
 		"magik": {
 			"name": "Magik", "short": "M", "hp": 12, "move": 2, "color": "#d9467d",
+			"sprite": "res://assets/sprites/heroes/magik.png",
 			"deck": [["magik_soulsword", 3], ["magik_limbo_strike", 2], ["magik_disc", 2], ["magik_darkchylde", 1]]
 		},
 		"luna_snow": {
 			"name": "Luna Snow", "short": "L", "hp": 10, "move": 2, "color": "#7fc8f0",
+			"sprite": "res://assets/sprites/heroes/luna_snow.png",
 			"deck": [["luna_shard", 3], ["luna_rink", 2], ["luna_melody", 2], ["luna_concert", 1]]
 		},
 		"jeff": {

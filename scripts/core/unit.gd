@@ -7,6 +7,8 @@ var id := ""
 var name := ""
 ## Lettre affichée tant qu'il n'y a pas de sprite.
 var short := ""
+## Chemin du sprite (res://...), vide si le héros n'a pas encore de pixel art.
+var sprite_path := ""
 var team := Team.HERO
 ## "hero", "minion" ou "elite".
 var kind := "hero"
