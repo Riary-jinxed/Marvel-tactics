@@ -1,0 +1,114 @@
+{
+	"heroes": {
+		"magik": {
+			"name": "Magik", "short": "M", "hp": 12, "move": 2, "color": "#d9467d",
+			"deck": [["magik_soulsword", 3], ["magik_limbo_strike", 2], ["magik_disc", 2], ["magik_darkchylde", 1]]
+		},
+		"luna_snow": {
+			"name": "Luna Snow", "short": "L", "hp": 10, "move": 2, "color": "#7fc8f0",
+			"deck": [["luna_shard", 3], ["luna_rink", 2], ["luna_melody", 2], ["luna_concert", 1]]
+		},
+		"jeff": {
+			"name": "Jeff", "short": "J", "hp": 14, "move": 2, "color": "#4f7fc4",
+			"deck": [["jeff_bite", 3], ["jeff_swallow", 2], ["jeff_dive", 1], ["jeff_hug", 1], ["jeff_its_jeff", 1]]
+		}
+	},
+	"cards": {
+		"magik_soulsword": {
+			"name": "Épée d'âme", "type": "attack", "target": "enemy", "reach": 1,
+			"effects": [{"type": "damage", "amount": 3}],
+			"text": "3 dégâts au corps à corps."
+		},
+		"magik_limbo_strike": {
+			"name": "Coup des Limbes", "type": "attack", "target": "enemy", "reach": 1,
+			"effects": [{"type": "damage", "amount": 2}, {"type": "knockback", "amount": 2}],
+			"text": "2 dégâts, repousse de 2 cases."
+		},
+		"magik_disc": {
+			"name": "Disque des Limbes", "type": "skill", "target": "tile_empty", "reach": 4,
+			"effects": [{"type": "teleport_self"}],
+			"text": "Magik se téléporte sur une case libre jusqu'à 4 cases."
+		},
+		"magik_darkchylde": {
+			"name": "Darkchylde", "type": "heroic", "cost": 3, "target": "self",
+			"effects": [{"type": "area_damage", "amount": 5}],
+			"text": "5 dégâts à tous les ennemis autour de Magik (diagonales comprises)."
+		},
+		"luna_shard": {
+			"name": "Éclat de glace", "type": "attack", "target": "enemy", "reach": 4,
+			"effects": [{"type": "damage", "amount": 2}, {"type": "frost", "amount": 1}],
+			"text": "2 dégâts à distance et 1 givre. 3 givres gèlent l'ennemi un tour."
+		},
+		"luna_rink": {
+			"name": "Patinoire", "type": "skill", "target": "tile", "reach": 4,
+			"effects": [{"type": "ice_area"}],
+			"text": "Gèle une case et ses 4 voisines. Un ennemi repoussé dessus glisse jusqu'à l'obstacle."
+		},
+		"luna_melody": {
+			"name": "Mélodie", "type": "skill", "target": "ally", "reach": 4,
+			"effects": [{"type": "heal", "amount": 3}],
+			"text": "Soigne 3 PV à un allié."
+		},
+		"luna_concert": {
+			"name": "Concert glacé", "type": "heroic", "cost": 3, "target": "self",
+			"effects": [{"type": "heal_allies", "amount": 4}, {"type": "frost_all", "amount": 1}],
+			"text": "Soigne 4 PV à toute l'équipe et donne 1 givre à tous les ennemis."
+		},
+		"jeff_bite": {
+			"name": "Morsure", "type": "attack", "target": "enemy", "reach": 1,
+			"effects": [{"type": "damage", "amount": 2}],
+			"text": "2 dégâts au corps à corps."
+		},
+		"jeff_swallow": {
+			"name": "Engloutir", "type": "attack", "target": "enemy", "reach": 1,
+			"effects": [{"type": "swallow", "amount": 2, "distance": 2}],
+			"text": "Avale un sbire. Sur une élite : 2 dégâts et repousse de 2 cases."
+		},
+		"jeff_dive": {
+			"name": "Plongée", "type": "skill", "target": "tile_empty", "reach": 3,
+			"effects": [{"type": "teleport_self"}, {"type": "burrow"}],
+			"text": "Jeff plonge jusqu'à une case libre à 3 cases et reste sous terre (intouchable) jusqu'au prochain tour."
+		},
+		"jeff_hug": {
+			"name": "Câlin de requin", "type": "skill", "target": "ally", "reach": 1,
+			"effects": [{"type": "shield", "amount": 4}],
+			"text": "4 points de bouclier à un allié adjacent ou à Jeff."
+		},
+		"jeff_its_jeff": {
+			"name": "C'est Jeff !", "type": "heroic", "cost": 3, "target": "self",
+			"effects": [{"type": "taunt"}, {"type": "shield", "amount": 6}],
+			"text": "Tous les ennemis ciblent Jeff, qui gagne 6 points de bouclier."
+		}
+	},
+	"enemies": {
+		"hydra_minion": {
+			"name": "Sbire Hydra", "short": "s", "kind": "minion", "hp": 1, "move": 2,
+			"attack_range": 1, "attack_damage": 2, "color": "#5f8f3e"
+		},
+		"hydra_brute": {
+			"name": "Brute Hydra", "short": "B", "kind": "elite", "hp": 10, "move": 2,
+			"attack_range": 1, "attack_damage": 4, "color": "#3d6b2c"
+		},
+		"hydra_gunner": {
+			"name": "Tireur Hydra", "short": "T", "kind": "elite", "hp": 7, "move": 2,
+			"attack_range": 3, "attack_damage": 3, "color": "#4c7a3a"
+		}
+	},
+	"mission": {
+		"heroes": [
+			{"id": "magik", "pos": [2, 5]},
+			{"id": "luna_snow", "pos": [1, 6]},
+			{"id": "jeff", "pos": [3, 6]}
+		],
+		"enemies": [
+			{"id": "hydra_brute", "pos": [3, 1]},
+			{"id": "hydra_gunner", "pos": [1, 0]},
+			{"id": "hydra_minion", "pos": [0, 2]},
+			{"id": "hydra_minion", "pos": [2, 1]},
+			{"id": "hydra_minion", "pos": [4, 2]},
+			{"id": "hydra_minion", "pos": [5, 1]}
+		],
+		"crates": [[1, 3], [4, 4]],
+		"barrels": [[3, 3]]
+	}
+}

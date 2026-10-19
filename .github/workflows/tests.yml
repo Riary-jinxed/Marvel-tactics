@@ -1,0 +1,21 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Installer Godot
+        run: |
+          curl -sSL -o "$RUNNER_TEMP/godot.zip" https://github.com/godotengine/godot/releases/download/4.4.1-stable/Godot_v4.4.1-stable_linux.x86_64.zip
+          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP"
+          echo "GODOT=$RUNNER_TEMP/Godot_v4.4.1-stable_linux.x86_64" >> "$GITHUB_ENV"
+      - name: Importer le projet
+        run: $GODOT --headless --path . --import
+      - name: Tests de combat
+        run: $GODOT --headless --path . -s tests/run_tests.gd
