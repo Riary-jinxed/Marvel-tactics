@@ -20,12 +20,19 @@ var pos := Vector2i.ZERO
 var move_range := 2
 var attack_range := 1
 var attack_damage := 0
+## "melee" (frappe la cible au contact), "barrage" (tir de zone annoncé) ou "none".
+var attack := "melee"
+## Cases repoussées par une attaque de mêlée ennemie.
+var attack_push := 0
+var immovable := false
 var frost := 0
 var frozen := false
 var burrowed := false
 var has_moved := false
 ## Héros que l'ennemi attaquera à son prochain tour (intention affichée).
 var intent_target = null
+## Cases visées par un tir de zone, figées au début du tour du joueur.
+var intent_tiles: Array[Vector2i] = []
 
 
 func is_alive() -> bool:

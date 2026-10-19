@@ -27,6 +27,13 @@ func _init() -> void:
 		"test_redraw",
 		"test_barrel_explodes",
 		"test_hero_move",
+		"test_barrage_hits_marked_tiles",
+		"test_barrage_dodged",
+		"test_brute_pushes",
+		"test_bomb_win",
+		"test_bomb_timer_loses",
+		"test_reinforcements",
+		"test_hero_blocks_reinforcement",
 	]
 	for test in tests:
 		call(test)
@@ -41,8 +48,9 @@ func check(condition: bool, label: String) -> void:
 		printerr("ÉCHEC : " + label)
 
 
-func make_state(heroes: Array, enemies: Array, crates := [], barrels := []):
+func make_state(heroes: Array, enemies: Array, crates := [], barrels := [], extra := {}):
 	var mission := {"heroes": [], "enemies": [], "crates": crates, "barrels": barrels}
+	mission.merge(extra)
 	for h in heroes:
 		mission.heroes.append({"id": h[0], "pos": h[1]})
 	for e in enemies:
@@ -67,7 +75,10 @@ func test_default_mission() -> void:
 	check(state.enemies().size() == 6, "6 ennemis")
 	check(state.plays_left == 3 and state.redraws_left == 2, "budget du tour")
 	for e in state.enemies():
-		check(e.intent_target != null, "intention de %s" % e.name)
+		if e.attack != "none":
+			check(e.intent_target != null, "intention de %s" % e.name)
+	check(state.bomb_turns_left() == 6, "6 tours pour la bombe")
+	check(state.planned_spawns.size() == 2, "2 renforts annoncés")
 
 
 func test_attack_gives_heroism() -> void:
@@ -190,3 +201,63 @@ func test_hero_move() -> void:
 	check(not s.move_targets(magik).has(Vector2i(0, 4)), "pas de passage à travers une caisse")
 	check(s.move_hero(magik, Vector2i(2, 6)), "déplacement de 2 cases")
 	check(not s.move_hero(magik, Vector2i(3, 6)), "un seul déplacement par tour")
+
+
+func test_barrage_hits_marked_tiles() -> void:
+	var s = make_state([["luna_snow", [2, 5]]], [["hydra_gunner", [0, 0]], ["hydra_minion", [2, 4]]])
+	var gunner = s.unit_at(Vector2i(0, 0))
+	check(gunner.intent_tiles.has(Vector2i(2, 5)) and gunner.intent_tiles.size() == 5, "zone en croix sur Luna")
+	s.end_turn()
+	check(s.hero_by_id("luna_snow").hp < 10, "Luna touchée en restant dans la zone")
+	check(s.unit_at(Vector2i(2, 4)) == null or not s.unit_at(Vector2i(2, 4)).kind == "minion", "le sbire dans la zone est touché aussi")
+
+
+func test_barrage_dodged() -> void:
+	var s = make_state([["luna_snow", [2, 5]]], [["hydra_gunner", [0, 0]]])
+	var luna = s.hero_by_id("luna_snow")
+	check(s.move_hero(luna, Vector2i(4, 5)), "Luna sort de la zone")
+	s.end_turn()
+	check(luna.hp == 10, "esquive réussie (hp=%d)" % luna.hp)
+
+
+func test_brute_pushes() -> void:
+	var s = make_state([["jeff", [2, 4]]], [["hydra_brute", [2, 2]]])
+	s.end_turn()
+	var jeff = s.hero_by_id("jeff")
+	check(jeff.hp == 10 and jeff.pos == Vector2i(2, 5), "4 dégâts et repoussé d'une case (hp=%d pos=%s)" % [jeff.hp, jeff.pos])
+
+
+func test_bomb_win() -> void:
+	var s = make_state([["magik", [2, 5]]], [["hydra_bomb", [2, 4]], ["hydra_minion", [0, 0]]], [], [], {"bomb_turns": 6})
+	var bomb = s.bomb()
+	bomb.hp = 3
+	s.play_card(give(s, "magik_limbo_strike", "magik"), Vector2i(2, 4))
+	check(bomb.pos == Vector2i(2, 4), "la bombe ne se repousse pas")
+	check(s.phase == BattleState.Phase.PLAYER, "pas encore détruite (hp=%d)" % bomb.hp)
+	s.play_card(give(s, "magik_soulsword", "magik"), Vector2i(2, 4))
+	check(s.phase == BattleState.Phase.WON, "bombe détruite = victoire, même avec des ennemis restants")
+
+
+func test_bomb_timer_loses() -> void:
+	var s = make_state([["magik", [5, 6]]], [["hydra_bomb", [0, 0]]], [], [], {"bomb_turns": 2})
+	s.end_turn()
+	check(s.phase == BattleState.Phase.PLAYER and s.bomb_turns_left() == 1, "dernier tour")
+	s.end_turn()
+	check(s.phase == BattleState.Phase.LOST, "la bombe explose à la fin du dernier tour")
+
+
+func test_reinforcements() -> void:
+	var extra := {"reinforcements": {"id": "hydra_minion", "per_turn": 2, "tiles": [[0, 0], [5, 0], [0, 3]]}}
+	var s = make_state([["magik", [2, 6]]], [["hydra_brute", [5, 5]]], [], [], extra)
+	check(s.planned_spawns.size() == 2, "2 renforts annoncés")
+	s.end_turn()
+	check(s.enemies().size() == 3, "2 sbires arrivés (%d ennemis)" % s.enemies().size())
+
+
+func test_hero_blocks_reinforcement() -> void:
+	var extra := {"reinforcements": {"id": "hydra_minion", "per_turn": 1, "tiles": [[2, 4]]}}
+	var s = make_state([["magik", [2, 6]]], [["hydra_brute", [5, 0]]], [], [], extra)
+	check(s.planned_spawns == [Vector2i(2, 4)], "renfort annoncé")
+	s.move_hero(s.hero_by_id("magik"), Vector2i(2, 4))
+	s.end_turn()
+	check(s.enemies().size() == 1, "le héros sur la case bloque le renfort")

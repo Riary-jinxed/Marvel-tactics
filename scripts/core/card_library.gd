@@ -54,8 +54,11 @@ func make_enemy(enemy_id: String, number: int) -> Unit:
 	unit.id = "%s_%d" % [enemy_id, number]
 	unit.team = Unit.Team.ENEMY
 	unit.kind = d.kind
-	unit.attack_range = int(d.attack_range)
-	unit.attack_damage = int(d.attack_damage)
+	unit.attack_range = int(d.get("attack_range", 0))
+	unit.attack_damage = int(d.get("attack_damage", 0))
+	unit.attack = d.get("attack", "melee")
+	unit.attack_push = int(d.get("attack_push", 0))
+	unit.immovable = unit.kind == "device"
 	return unit
 
 

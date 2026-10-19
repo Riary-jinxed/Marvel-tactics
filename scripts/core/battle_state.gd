@@ -29,7 +29,19 @@ var redraws_left := 0
 var turn := 0
 var phase := Phase.PLAYER
 var events: Array[String] = []
+## Événements visuels (dégâts, KO, explosions...) que l'affichage consomme pour animer.
+var fx: Array = []
 var rng := RandomNumberGenerator.new()
+
+# Objectif et renforts de la mission
+var bomb_turns := 0
+var spawn_tiles: Array[Vector2i] = []
+var spawn_enemy_id := ""
+var spawns_per_turn := 0
+var max_enemies := 8
+var planned_spawns: Array[Vector2i] = []
+var _library
+var _spawned := 0
 
 
 func setup(library, mission: Dictionary, rng_seed: int = -1) -> void:
@@ -52,6 +64,16 @@ func setup(library, mission: Dictionary, rng_seed: int = -1) -> void:
 		crates[_vec(p)] = true
 	for p in mission.get("barrels", []):
 		barrels[_vec(p)] = true
+	_library = library
+	_spawned = count
+	bomb_turns = int(mission.get("bomb_turns", 0))
+	var reinforcements: Dictionary = mission.get("reinforcements", {})
+	if not reinforcements.is_empty():
+		spawn_enemy_id = reinforcements.id
+		spawns_per_turn = int(reinforcements.per_turn)
+		max_enemies = int(reinforcements.get("max_enemies", 8))
+		for p in reinforcements.tiles:
+			spawn_tiles.append(_vec(p))
 	_shuffle(draw_pile)
 	start_player_turn()
 
@@ -64,6 +86,18 @@ func heroes() -> Array:
 
 func enemies() -> Array:
 	return units.filter(func(u): return u.is_alive() and not u.is_hero())
+
+
+func bomb():
+	for u in units:
+		if u.kind == "device":
+			return u
+	return null
+
+
+## Tours restants avant l'explosion de la bombe (0 si la mission n'en a pas).
+func bomb_turns_left() -> int:
+	return bomb_turns - turn + 1 if bomb_turns > 0 else 0
 
 
 func hero_by_id(hero_id: String):
@@ -126,6 +160,7 @@ func start_player_turn() -> void:
 	while hand.size() < HAND_SIZE and _draw_card():
 		pass
 	_plan_enemy_intents()
+	_plan_spawns()
 	_event("Tour %d" % turn)
 
 
@@ -177,6 +212,7 @@ func play_card(index: int, target: Vector2i) -> bool:
 	plays_left -= 1
 	if card.type == Card.Type.HEROIC:
 		heroism -= card.cost
+		fx.append({"type": "heroic", "unit": user})
 	else:
 		heroism += 1
 	_event("%s : %s" % [user.name, card.name])
@@ -227,12 +263,20 @@ func begin_enemy_phase() -> Array:
 
 
 func enemy_act(enemy) -> void:
-	if phase != Phase.ENEMY or not _alive(enemy):
+	if phase != Phase.ENEMY or not _alive(enemy) or enemy.attack == "none":
 		return
 	if enemy.frozen:
 		enemy.frozen = false
 		_event("%s est gelé et passe son tour" % enemy.name)
 		return
+	if enemy.attack == "barrage":
+		_barrage(enemy)
+	else:
+		_melee(enemy)
+	_check_end()
+
+
+func _melee(enemy) -> void:
 	var target = enemy.intent_target
 	if not _alive(target):
 		target = _nearest_hero(enemy.pos)
@@ -243,12 +287,34 @@ func enemy_act(enemy) -> void:
 	if distance(enemy.pos, target.pos) <= enemy.attack_range:
 		_event("%s attaque %s" % [enemy.name, target.name])
 		_damage(target, enemy.attack_damage)
-	_check_end()
+		if enemy.attack_push > 0 and _alive(target):
+			_push(enemy.pos, target, enemy.attack_push)
+
+
+## Tir de zone : touche tout ce qui se trouve encore sur les cases annoncées,
+## alliés de l'ennemi compris.
+func _barrage(enemy) -> void:
+	if enemy.intent_tiles.is_empty():
+		return
+	_event("%s : tir de barrage" % enemy.name)
+	fx.append({"type": "barrage", "tiles": enemy.intent_tiles.duplicate()})
+	for p in enemy.intent_tiles:
+		var hit = unit_at(p)
+		if hit != null and hit != enemy:
+			_damage(hit, enemy.attack_damage)
+	enemy.intent_tiles.clear()
 
 
 func finish_enemy_phase() -> void:
-	if phase == Phase.ENEMY:
-		start_player_turn()
+	if phase != Phase.ENEMY:
+		return
+	if bomb_turns > 0 and _alive(bomb()) and bomb_turns_left() <= 1:
+		phase = Phase.LOST
+		fx.append({"type": "explode", "pos": bomb().pos, "big": true})
+		_event("La bombe explose... Défaite")
+		return
+	_spawn_reinforcements()
+	start_player_turn()
 
 
 ## Tour ennemi complet, sans pause entre les actions (utilisé par les tests).
@@ -280,6 +346,7 @@ func _apply_effect(effect: Dictionary, user, target_unit, tile: Vector2i) -> voi
 				target_unit.shield += amount
 				_event("%s gagne %d de bouclier" % [target_unit.name, amount])
 		"teleport_self":
+			fx.append({"type": "teleport", "unit": user, "from": user.pos})
 			user.pos = tile
 		"burrow":
 			user.burrowed = true
@@ -293,6 +360,7 @@ func _apply_effect(effect: Dictionary, user, target_unit, tile: Vector2i) -> voi
 				return
 			if target_unit.kind == "minion":
 				target_unit.hp = 0
+				fx.append({"type": "ko", "unit": target_unit})
 				_event("%s avale %s" % [user.name, target_unit.name])
 			else:
 				_damage(target_unit, amount)
@@ -321,6 +389,7 @@ func _damage(unit, amount: int) -> void:
 		_event("%s est sous terre, aucun dégât" % unit.name)
 		return
 	var lost: int = unit.take_damage(amount)
+	fx.append({"type": "damage", "unit": unit, "amount": lost, "blocked": amount - lost})
 	_event("%s perd %d PV" % [unit.name, lost])
 	if not unit.is_alive():
 		_on_ko(unit)
@@ -329,6 +398,7 @@ func _damage(unit, amount: int) -> void:
 func _heal(unit, amount: int) -> void:
 	var gained: int = unit.heal(amount)
 	if gained > 0:
+		fx.append({"type": "heal", "unit": unit, "amount": gained})
 		_event("%s récupère %d PV" % [unit.name, gained])
 
 
@@ -343,6 +413,8 @@ func _add_frost(unit, stacks: int) -> void:
 ## Repousse la cible dans l'axe source -> cible. Sur la glace, elle glisse
 ## jusqu'au prochain obstacle. Heurter un obstacle inflige des dégâts.
 func _push(source: Vector2i, unit, distance_left: int) -> void:
+	if unit.immovable or unit.burrowed:
+		return
 	var dir := _direction(source, unit.pos)
 	var moved := false
 	while distance_left > 0 or (moved and ice.has(unit.pos)):
@@ -357,6 +429,7 @@ func _push(source: Vector2i, unit, distance_left: int) -> void:
 
 func _collide(unit, obstacle: Vector2i) -> void:
 	var other = unit_at(obstacle)
+	fx.append({"type": "bump", "unit": unit, "pos": obstacle})
 	_event("%s percute un obstacle" % unit.name)
 	_damage(unit, COLLISION_DAMAGE)
 	if other != null:
@@ -367,6 +440,7 @@ func _collide(unit, obstacle: Vector2i) -> void:
 
 func _explode(barrel: Vector2i) -> void:
 	barrels.erase(barrel)
+	fx.append({"type": "explode", "pos": barrel})
 	_event("Le baril explose !")
 	for u in units:
 		if u.is_alive() and _chebyshev(u.pos, barrel) <= 1:
@@ -374,6 +448,7 @@ func _explode(barrel: Vector2i) -> void:
 
 
 func _on_ko(unit) -> void:
+	fx.append({"type": "ko", "unit": unit})
 	_event("%s est KO" % unit.name)
 	if unit.is_hero():
 		var keep := func(card): return card.hero_id != unit.id
@@ -401,7 +476,40 @@ func _draw_card(at: int = -1) -> bool:
 
 func _plan_enemy_intents() -> void:
 	for e in enemies():
+		e.intent_tiles.clear()
+		if e.attack == "none":
+			e.intent_target = null
+			continue
 		e.intent_target = _nearest_hero(e.pos)
+		if e.attack == "barrage" and e.intent_target != null:
+			var center: Vector2i = e.intent_target.pos
+			for p in [center, center + Vector2i.UP, center + Vector2i.DOWN, center + Vector2i.LEFT, center + Vector2i.RIGHT]:
+				if in_bounds(p):
+					e.intent_tiles.append(p)
+
+
+## Choisit les cases où des renforts arriveront à la fin du prochain tour ennemi.
+func _plan_spawns() -> void:
+	planned_spawns.clear()
+	var room := max_enemies - enemies().size()
+	var free := spawn_tiles.filter(func(p): return not is_blocked(p))
+	_shuffle(free)
+	for i in mini(mini(spawns_per_turn, room), free.size()):
+		planned_spawns.append(free[i])
+
+
+## Un héros posté sur une case de renfort empêche l'arrivée.
+func _spawn_reinforcements() -> void:
+	for p in planned_spawns:
+		if is_blocked(p):
+			continue
+		_spawned += 1
+		var enemy = _library.make_enemy(spawn_enemy_id, _spawned)
+		enemy.pos = p
+		units.append(enemy)
+		fx.append({"type": "spawn", "unit": enemy})
+		_event("Renfort : %s" % enemy.name)
+	planned_spawns.clear()
 
 
 func _nearest_hero(from: Vector2i):
@@ -439,7 +547,8 @@ func _approach(enemy, target) -> Vector2i:
 func _check_end() -> void:
 	if phase == Phase.WON or phase == Phase.LOST:
 		return
-	if enemies().is_empty():
+	var won: bool = not _alive(bomb()) if bomb_turns > 0 else enemies().is_empty()
+	if won:
 		phase = Phase.WON
 		_event("Victoire !")
 	elif heroes().is_empty():

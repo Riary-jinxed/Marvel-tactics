@@ -89,28 +89,38 @@
 		},
 		"hydra_brute": {
 			"name": "Brute Hydra", "short": "B", "kind": "elite", "hp": 10, "move": 2,
-			"attack_range": 1, "attack_damage": 4, "color": "#3d6b2c"
+			"attack_range": 1, "attack_damage": 4, "attack_push": 1, "color": "#3d6b2c"
 		},
 		"hydra_gunner": {
-			"name": "Tireur Hydra", "short": "T", "kind": "elite", "hp": 7, "move": 2,
-			"attack_range": 3, "attack_damage": 3, "color": "#4c7a3a"
+			"name": "Artilleur Hydra", "short": "A", "kind": "elite", "hp": 7, "move": 0,
+			"attack": "barrage", "attack_damage": 3, "color": "#4c7a3a"
+		},
+		"hydra_bomb": {
+			"name": "Bombe Hydra", "short": "X", "kind": "device", "hp": 10, "move": 0,
+			"attack": "none", "color": "#8e1b1b"
 		}
 	},
 	"mission": {
+		"name": "Désamorcer la bombe Hydra",
+		"bomb_turns": 6,
 		"heroes": [
 			{"id": "magik", "pos": [2, 5]},
 			{"id": "luna_snow", "pos": [1, 6]},
 			{"id": "jeff", "pos": [3, 6]}
 		],
 		"enemies": [
+			{"id": "hydra_bomb", "pos": [2, 0]},
 			{"id": "hydra_brute", "pos": [3, 1]},
-			{"id": "hydra_gunner", "pos": [1, 0]},
-			{"id": "hydra_minion", "pos": [0, 2]},
-			{"id": "hydra_minion", "pos": [2, 1]},
+			{"id": "hydra_gunner", "pos": [0, 1]},
+			{"id": "hydra_minion", "pos": [1, 2]},
 			{"id": "hydra_minion", "pos": [4, 2]},
 			{"id": "hydra_minion", "pos": [5, 1]}
 		],
-		"crates": [[1, 3], [4, 4]],
-		"barrels": [[3, 3]]
+		"crates": [[1, 4], [4, 4]],
+		"barrels": [[3, 3], [1, 0]],
+		"reinforcements": {
+			"id": "hydra_minion", "per_turn": 2, "max_enemies": 9,
+			"tiles": [[0, 0], [5, 0], [0, 3], [5, 3]]
+		}
 	}
 }

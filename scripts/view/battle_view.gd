@@ -1,6 +1,7 @@
 extends Control
-## Écran de combat en placeholder : formes simples dessinées dans _draw(),
-## en attendant le pixel art. Toute la logique est dans BattleState.
+## Écran de combat dessiné dans _draw() : sprites quand ils existent, formes
+## simples sinon. Toute la logique est dans BattleState ; cette vue anime les
+## événements visuels (state.fx) qu'elle produit.
 
 const BattleState = preload("res://scripts/core/battle_state.gd")
 const CardLibrary = preload("res://scripts/core/card_library.gd")
@@ -14,7 +15,11 @@ const CARD_SIZE := Vector2(64, 96)
 const CARD_GAP := 6.0
 const REDRAW_RECT := Rect2(8, 588, 112, 44)
 const END_TURN_RECT := Rect2(240, 588, 112, 44)
-const ENEMY_STEP_DELAY := 0.35
+const ENEMY_STEP_DELAY := 0.45
+const DRAG_THRESHOLD := 12.0
+const DAMAGE_COLOR := Color("#ff5a5a")
+const HEAL_COLOR := Color("#6ee07a")
+const ZONE_COLOR := Color("#ff4d4d")
 
 const BG := Color("#1b1d2a")
 const INK := Color("#f2efe6")
@@ -34,6 +39,22 @@ var busy := false
 var sprites := {}
 var sprite_feet := {}
 
+# Animation
+var display_pos := {}
+var flash := {}
+var floaters: Array = []
+var bursts: Array = []
+var tile_flashes: Array = []
+var screen_tint := Color(0, 0, 0, 0)
+var shake := 0.0
+
+# Glisser une carte
+var drag_card := -1
+var drag_pos := Vector2.ZERO
+var press_pos := Vector2.ZERO
+var dragging := false
+var was_selected := false
+
 
 func _ready() -> void:
 	font = ThemeDB.fallback_font
@@ -45,6 +66,8 @@ func _ready() -> void:
 func _new_battle() -> void:
 	state = BattleState.new()
 	state.setup(library, library.data.mission)
+	display_pos.clear()
+	state.fx.clear()
 	_clear_selection()
 	queue_redraw()
 
@@ -52,26 +75,60 @@ func _new_battle() -> void:
 # --- Entrées --------------------------------------------------------------
 
 func _gui_input(event: InputEvent) -> void:
-	if not (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT):
+	if event is InputEventMouseMotion:
+		if drag_card >= 0:
+			drag_pos = event.position
+			dragging = dragging or drag_pos.distance_to(press_pos) > DRAG_THRESHOLD
+			queue_redraw()
+		return
+	if not (event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT):
 		return
 	accept_event()
+	if event.pressed:
+		_on_press(event.position)
+	else:
+		_on_release(event.position)
+	_consume_fx()
+	_refresh_highlights()
+	queue_redraw()
+
+
+func _on_press(pos: Vector2) -> void:
 	if state.phase == BattleState.Phase.WON or state.phase == BattleState.Phase.LOST:
 		_new_battle()
 		return
 	if busy:
 		return
-	_on_tap(event.position)
-	_refresh_highlights()
-	queue_redraw()
+	for i in state.hand.size():
+		if _card_rect(i).has_point(pos):
+			was_selected = selected_card == i
+			selected_card = i
+			selected_hero = null
+			inspected = null
+			drag_card = i
+			press_pos = pos
+			drag_pos = pos
+			dragging = false
+			return
+	_on_tap(pos)
+
+
+## Relâcher une carte glissée sur une cible la joue ; un simple toucher la
+## sélectionne ou la désélectionne.
+func _on_release(pos: Vector2) -> void:
+	if drag_card < 0:
+		return
+	if dragging:
+		var tile = _tile_at(pos)
+		if tile != null and state.play_card(drag_card, tile):
+			selected_card = -1
+	elif was_selected:
+		selected_card = -1
+	drag_card = -1
+	dragging = false
 
 
 func _on_tap(pos: Vector2) -> void:
-	for i in state.hand.size():
-		if _card_rect(i).has_point(pos):
-			selected_hero = null
-			inspected = null
-			selected_card = -1 if selected_card == i else i
-			return
 	if REDRAW_RECT.has_point(pos):
 		if selected_card >= 0 and state.redraw(selected_card):
 			selected_card = -1
@@ -102,9 +159,10 @@ func _end_turn() -> void:
 	_clear_selection()
 	for enemy in state.begin_enemy_phase():
 		state.enemy_act(enemy)
-		queue_redraw()
-		await get_tree().create_timer(ENEMY_STEP_DELAY).timeout
+		if _consume_fx():
+			await get_tree().create_timer(ENEMY_STEP_DELAY).timeout
 	state.finish_enemy_phase()
+	_consume_fx()
 	busy = false
 	queue_redraw()
 
@@ -125,6 +183,98 @@ func _refresh_highlights() -> void:
 		highlights = []
 
 
+# --- Animation ------------------------------------------------------------
+
+func _process(delta: float) -> void:
+	var active := false
+	for u in state.units:
+		if not u.is_alive():
+			continue
+		var target := _tile_rect(u.pos).position
+		var current: Vector2 = display_pos.get(u, target)
+		if current.distance_to(target) > 0.5:
+			current = current.lerp(target, 1.0 - exp(-delta * 14.0))
+			active = true
+		else:
+			current = target
+		display_pos[u] = current
+	for u in flash.keys():
+		flash[u] -= delta
+		if flash[u] <= 0:
+			flash.erase(u)
+	for list in [floaters, bursts, tile_flashes]:
+		for f in list:
+			f.age += delta
+	floaters = floaters.filter(func(f): return f.age < 0.9)
+	bursts = bursts.filter(func(b): return b.age < b.dur)
+	tile_flashes = tile_flashes.filter(func(t): return t.age < 0.5)
+	screen_tint.a = move_toward(screen_tint.a, 0.0, delta * 1.5)
+	if shake > 0:
+		shake = maxf(0.0, shake - delta * 30.0)
+		position = Vector2(randf_range(-1, 1), randf_range(-1, 1)) * shake
+	elif position != Vector2.ZERO:
+		position = Vector2.ZERO
+	active = active or not flash.is_empty() or not floaters.is_empty() or not bursts.is_empty()
+	active = active or not tile_flashes.is_empty() or screen_tint.a > 0 or shake > 0
+	if active:
+		queue_redraw()
+
+
+## Transforme les événements du combat en effets à l'écran. Renvoie true s'il y en avait.
+func _consume_fx() -> bool:
+	var had: bool = not state.fx.is_empty()
+	for e in state.fx:
+		match e.type:
+			"damage":
+				if e.amount > 0:
+					_float("-%d" % e.amount, e.unit, DAMAGE_COLOR)
+					flash[e.unit] = 0.2
+					shake = maxf(shake, minf(2.0 + e.amount, 7.0))
+				elif e.blocked > 0:
+					_float("bloqué", e.unit, MUTED)
+			"heal":
+				_float("+%d" % e.amount, e.unit, HEAL_COLOR)
+			"ko":
+				_burst(_unit_center(e.unit), INK, 26.0, 0.35)
+				_float("KO", e.unit, INK)
+			"explode":
+				var big: bool = e.get("big", false)
+				_burst(_tile_rect(e.pos).get_center(), Color("#ff9f43"), 90.0 if big else 46.0, 0.5)
+				for dy in range(-1, 2):
+					for dx in range(-1, 2):
+						tile_flashes.append({"tile": e.pos + Vector2i(dx, dy), "age": 0.0, "color": Color("#ff9f43")})
+				shake = maxf(shake, 12.0 if big else 8.0)
+			"barrage":
+				for p in e.tiles:
+					tile_flashes.append({"tile": p, "age": 0.0, "color": ZONE_COLOR})
+				shake = maxf(shake, 4.0)
+			"teleport":
+				_burst(_tile_rect(e.from).get_center(), e.unit.color, 30.0, 0.35)
+				_burst(_tile_rect(e.unit.pos).get_center(), e.unit.color, 30.0, 0.35)
+				display_pos[e.unit] = _tile_rect(e.unit.pos).position
+			"heroic":
+				screen_tint = Color(e.unit.color, 0.45)
+				shake = maxf(shake, 6.0)
+			"bump":
+				var r: Rect2 = _tile_rect(e.unit.pos)
+				_burst(r.get_center().lerp(_tile_rect(e.pos).get_center(), 0.5), INK, 16.0, 0.25)
+			"spawn":
+				display_pos[e.unit] = _tile_rect(e.unit.pos).position - Vector2(0, 40)
+				_burst(_tile_rect(e.unit.pos).get_center(), e.unit.color, 30.0, 0.4)
+	state.fx.clear()
+	if had:
+		queue_redraw()
+	return had
+
+
+func _float(text: String, unit, color: Color) -> void:
+	floaters.append({"text": text, "pos": _unit_center(unit) - Vector2(0, 14), "age": 0.0, "color": color})
+
+
+func _burst(pos: Vector2, color: Color, radius: float, duration: float) -> void:
+	bursts.append({"pos": pos, "color": color, "radius": radius, "age": 0.0, "dur": duration})
+
+
 # --- Géométrie ------------------------------------------------------------
 
 func _tile_rect(p: Vector2i) -> Rect2:
@@ -135,6 +285,15 @@ func _tile_at(pos: Vector2):
 	var local := (pos - GRID_ORIGIN) / TILE
 	var p := Vector2i(floori(local.x), floori(local.y))
 	return p if state.in_bounds(p) else null
+
+
+## Case où l'unité est affichée (suit sa position logique avec un léger retard animé).
+func _unit_rect(u) -> Rect2:
+	return Rect2(display_pos.get(u, _tile_rect(u.pos).position), Vector2(TILE, TILE))
+
+
+func _unit_center(u) -> Vector2:
+	return _unit_rect(u).get_center()
 
 
 func _card_rect(i: int) -> Rect2:
@@ -151,18 +310,25 @@ func _draw() -> void:
 	_draw_header()
 	_draw_grid()
 	_draw_units()
+	_draw_effects()
 	_draw_detail()
 	_draw_hand()
 	_draw_buttons()
+	_draw_dragged_card()
+	if screen_tint.a > 0:
+		draw_rect(Rect2(Vector2.ZERO, size), screen_tint)
 	_draw_end_overlay()
 
 
 func _draw_header() -> void:
 	var header := "Tour %d   Héroïsme %d   Cartes %d/%d" % [state.turn, state.heroism, state.plays_left, BattleState.PLAYS_PER_TURN]
 	draw_string(font, Vector2(8, 18), header, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, INK)
-	var recent: Array = state.events.slice(-2)
-	for i in recent.size():
-		draw_string(font, Vector2(8, 36 + i * 14), recent[i], HORIZONTAL_ALIGNMENT_LEFT, 344, 11, MUTED)
+	if state.bomb_turns > 0:
+		var left: int = state.bomb_turns_left()
+		var objective := "Détruis la bombe : %d tour%s restant%s" % [left, "s" if left > 1 else "", "s" if left > 1 else ""]
+		draw_string(font, Vector2(8, 35), objective, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, ZONE_COLOR if left <= 2 else TARGET_COLOR)
+	if not state.events.is_empty():
+		draw_string(font, Vector2(8, 51), state.events[-1], HORIZONTAL_ALIGNMENT_LEFT, 344, 11, MUTED)
 
 
 func _draw_grid() -> void:
@@ -186,12 +352,29 @@ func _draw_grid() -> void:
 			if state.barrels.has(p):
 				draw_circle(r.get_center(), 13, Color("#c0392b"))
 				_centered("!", r.get_center() + Vector2(0, 6), 16, INK)
+	# Tirs de zone annoncés : sortir des cases rouges pour esquiver.
+	for e in state.enemies():
+		if e.frozen:
+			continue
+		for p in e.intent_tiles:
+			var r := _tile_rect(p).grow(-1)
+			draw_rect(r, Color(ZONE_COLOR, 0.22))
+			draw_rect(r, Color(ZONE_COLOR, 0.8), false, 1.5)
+			draw_string(font, r.position + Vector2(3, 12), "%d" % e.attack_damage, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, ZONE_COLOR)
+	for p in state.planned_spawns:
+		var c := _tile_rect(p).get_center()
+		draw_arc(c, 18, 0, TAU, 24, Color("#7bd389"), 1.5)
+		_centered("renfort", c + Vector2(0, 4), 9, Color("#7bd389"))
+	if dragging:
+		var under = _tile_at(drag_pos)
+		if under != null and highlights.has(under):
+			draw_rect(_tile_rect(under).grow(-2), INK, false, 3)
 
 
 func _draw_units() -> void:
 	var alive: Array = state.units.filter(func(u): return u.is_alive())
 	# Les unités du bas passent devant : un sprite plus haut qu'une case déborde sur celle du dessus.
-	alive.sort_custom(func(a, b): return a.pos.y < b.pos.y)
+	alive.sort_custom(func(a, b): return _unit_rect(a).position.y < _unit_rect(b).position.y)
 	for u in alive:
 		_draw_unit_body(u)
 	for u in alive:
@@ -199,7 +382,8 @@ func _draw_units() -> void:
 
 
 func _draw_unit_body(u) -> void:
-	var r := _tile_rect(u.pos)
+	var r := _unit_rect(u)
+	var hit: bool = flash.has(u)
 	var feet := Vector2(r.get_center().x, r.end.y - 6)
 	var tex: Texture2D = _sprite(u)
 	if tex != null:
@@ -209,23 +393,32 @@ func _draw_unit_body(u) -> void:
 		draw_set_transform(Vector2.ZERO)
 		var offset: Vector2 = sprite_feet[u.id]
 		var tint := Color(1, 1, 1, 0.35) if u.burrowed else Color.WHITE
+		if hit:
+			tint = Color(1, 0.3, 0.3)
 		draw_texture(tex, (feet - offset).round(), tint)
 		return
 	var center := r.get_center() - Vector2(0, 3)
 	var col: Color = u.color
 	if u.burrowed:
 		col.a = 0.35
-	if u.is_hero():
+	if hit:
+		col = col.lerp(Color.WHITE, 0.7)
+	var label: String = u.short
+	if u.kind == "device":
+		draw_rect(Rect2(center - Vector2(18, 18), Vector2(36, 36)), col)
+		draw_rect(Rect2(center - Vector2(18, 18), Vector2(36, 36)), ZONE_COLOR, false, 2)
+		label = "%d" % state.bomb_turns_left() if state.bomb_turns > 0 else u.short
+	elif u.is_hero():
 		draw_circle(center, 17, col)
 	else:
 		draw_rect(Rect2(center - Vector2(16, 16), Vector2(32, 32)), col)
 	if u == selected_hero or u == inspected:
 		draw_arc(center, 22, 0, TAU, 32, INK, 2)
-	_centered(u.short, center + Vector2(0, 6), 17, INK)
+	_centered(label, center + Vector2(0, 6), 17, INK)
 
 
 func _draw_unit_overlay(u) -> void:
-	var r := _tile_rect(u.pos)
+	var r := _unit_rect(u)
 	var hp_text := "%d" % u.hp
 	if u.shield > 0:
 		hp_text += " +%d" % u.shield
@@ -242,9 +435,17 @@ func _draw_unit_overlay(u) -> void:
 		draw_rect(r.grow(-3), ICE_COLOR, false, 2)
 	if u.is_hero() and u.has_moved:
 		draw_circle(r.position + Vector2(6, r.size.y - 7), 3, MUTED)
-	if not u.is_hero() and u.intent_target != null and u.intent_target.is_alive():
-		var intent := "%s %d" % [u.intent_target.short, u.attack_damage] if not u.frozen else "gelé"
-		_centered(intent, Vector2(r.get_center().x, r.position.y + 10), 10, TARGET_COLOR)
+	var intent := ""
+	if u.frozen:
+		intent = "gelé"
+	elif u.attack == "barrage" and not u.intent_tiles.is_empty():
+		intent = "zone %d" % u.attack_damage
+	elif u.kind == "device":
+		intent = "BOMBE"
+	elif not u.is_hero() and u.intent_target != null and u.intent_target.is_alive():
+		intent = "%s %d" % [u.intent_target.short, u.attack_damage]
+	if intent != "":
+		_centered(intent, Vector2(r.get_center().x, r.position.y + 10), 10, ZONE_COLOR if u.kind == "device" else TARGET_COLOR)
 
 
 ## Texture du héros si un sprite est défini, sinon null (forme placeholder).
@@ -260,8 +461,31 @@ func _sprite(u) -> Texture2D:
 	return sprites[u.id]
 
 
+func _draw_effects() -> void:
+	for t in tile_flashes:
+		var a: float = 1.0 - t.age / 0.5
+		if state.in_bounds(t.tile):
+			draw_rect(_tile_rect(t.tile).grow(-1), Color(t.color, 0.55 * a))
+	for b in bursts:
+		var k: float = b.age / b.dur
+		draw_arc(b.pos, b.radius * (0.3 + 0.7 * k), 0, TAU, 32, Color(b.color, 1.0 - k), 4.0 * (1.0 - k) + 1.0)
+	for f in floaters:
+		var k: float = f.age / 0.9
+		var p: Vector2 = f.pos - Vector2(0, 26 * k)
+		_centered(f.text, p + Vector2(1, 1), 15, Color(0, 0, 0, 1.0 - k))
+		_centered(f.text, p, 15, Color(f.color, 1.0 - k))
+
+
+func _draw_dragged_card() -> void:
+	if not dragging or drag_card < 0 or drag_card >= state.hand.size():
+		return
+	var r := Rect2(drag_pos - CARD_SIZE / 2 - Vector2(0, 40), CARD_SIZE)
+	_draw_card(state.hand[drag_card], r, drag_card)
+	draw_rect(r, INK, false, 2)
+
+
 func _draw_detail() -> void:
-	var text := "Touche une carte puis sa cible, ou un héros pour le déplacer."
+	var text := "Glisse une carte sur sa cible, ou touche un héros pour le déplacer. Touche un ennemi pour voir son attaque."
 	if selected_card >= 0:
 		var card = state.hand[selected_card]
 		text = "%s (%s) : %s" % [card.name, state.card_owner(card).name, card.text]
@@ -275,28 +499,41 @@ func _draw_detail() -> void:
 		else:
 			text = "%s : touche une case en surbrillance pour se déplacer." % selected_hero.name
 	elif inspected != null:
-		var target_name: String = inspected.intent_target.name if inspected.intent_target != null else "personne"
-		text = "%s : %d PV, %d dégâts à portée %d. Vise %s." % [inspected.name, inspected.hp, inspected.attack_damage, inspected.attack_range, target_name]
+		if inspected.kind == "device":
+			text = "%s : %d PV. Explose dans %d tour(s) : détruis-la pour gagner. Elle ne peut pas être repoussée." % [inspected.name, inspected.hp, state.bomb_turns_left()]
+		elif inspected.attack == "barrage":
+			text = "%s : %d PV. Tir de zone de %d dégâts sur les cases rouges, ennemis compris. Sors de la zone pour esquiver." % [inspected.name, inspected.hp, inspected.attack_damage]
+		else:
+			var target_name: String = inspected.intent_target.name if inspected.intent_target != null else "personne"
+			text = "%s : %d PV, %d dégâts au contact. Vise %s." % [inspected.name, inspected.hp, inspected.attack_damage, target_name]
+			if inspected.attack_push > 0:
+				text += " Repousse d'une case."
 	draw_multiline_string(font, DETAIL_RECT.position + Vector2(0, 13), text, HORIZONTAL_ALIGNMENT_LEFT, DETAIL_RECT.size.x, 12, 3, INK)
 
 
 func _draw_hand() -> void:
 	for i in state.hand.size():
-		var card = state.hand[i]
-		var owner = state.card_owner(card)
-		var r := _card_rect(i)
-		var playable: bool = state.can_play(i)
-		draw_rect(r, Color("#ece6d6") if playable else Color("#7d7a70"))
-		var band := Rect2(r.position, Vector2(r.size.x, 16))
-		draw_rect(band, _type_color(card.type))
-		_centered(_type_label(card), band.get_center() + Vector2(0, 4), 10, INK)
-		draw_multiline_string(font, r.position + Vector2(3, 32), card.name, HORIZONTAL_ALIGNMENT_CENTER, r.size.x - 6, 11, 4, BG)
-		var foot := Rect2(r.position + Vector2(0, r.size.y - 16), Vector2(r.size.x, 16))
-		draw_rect(foot, owner.color)
-		_centered(owner.name, foot.get_center() + Vector2(0, 4), 10, BG)
+		if dragging and i == drag_card:
+			draw_rect(_card_rect(i), Color(INK, 0.15))
+			continue
+		_draw_card(state.hand[i], _card_rect(i), i)
 		if i == selected_card:
-			draw_rect(r, INK, false, 2)
+			draw_rect(_card_rect(i), INK, false, 2)
 	draw_string(font, Vector2(8, HAND_Y + CARD_SIZE.y + 12), "Pioche %d · Défausse %d" % [state.draw_pile.size(), state.discard_pile.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, 10, MUTED)
+
+
+func _draw_card(card, r: Rect2, index: int) -> void:
+	var owner = state.card_owner(card)
+	var playable: bool = state.can_play(index)
+	draw_rect(r, Color("#ece6d6") if playable else Color("#7d7a70"))
+	var band := Rect2(r.position, Vector2(r.size.x, 16))
+	draw_rect(band, _type_color(card.type))
+	_centered(_type_label(card), band.get_center() + Vector2(0, 4), 10, INK)
+	var name_size := 11 if card.name.length() <= 9 else 10
+	draw_multiline_string(font, r.position + Vector2(3, 32), card.name, HORIZONTAL_ALIGNMENT_CENTER, r.size.x - 6, name_size, 4, BG)
+	var foot := Rect2(r.position + Vector2(0, r.size.y - 16), Vector2(r.size.x, 16))
+	draw_rect(foot, owner.color)
+	_centered(owner.name, foot.get_center() + Vector2(0, 4), 10, BG)
 
 
 func _draw_buttons() -> void:
@@ -310,8 +547,14 @@ func _draw_end_overlay() -> void:
 		return
 	draw_rect(Rect2(Vector2.ZERO, size), Color(0, 0, 0, 0.7))
 	var title := "Victoire !" if state.phase == BattleState.Phase.WON else "Défaite"
-	_centered(title, Vector2(180, 300), 32, INK)
-	_centered("Touche l'écran pour rejouer", Vector2(180, 336), 13, MUTED)
+	var reason := ""
+	if state.bomb_turns > 0:
+		reason = "Bombe détruite" if state.phase == BattleState.Phase.WON else "La bombe a explosé"
+		if state.phase == BattleState.Phase.LOST and state.heroes().is_empty():
+			reason = "Toute l'équipe est KO"
+	_centered(title, Vector2(180, 290), 32, INK)
+	_centered(reason, Vector2(180, 316), 14, TARGET_COLOR)
+	_centered("Touche l'écran pour rejouer", Vector2(180, 344), 13, MUTED)
 
 
 func _button(r: Rect2, label: String, enabled: bool) -> void:

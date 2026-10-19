@@ -9,14 +9,17 @@ Un combat jouable de bout en bout, avec des formes simples à la place du pixel 
 - grille de 6 × 7 cases en portrait (360 × 640) ;
 - 3 héros : Magik (téléportation, Darkchylde), Luna Snow (givre, glace, soins), Jeff the Land Shark (engloutir, plongée, provocation) ;
 - 8 cartes par héros, main commune de 5 cartes, 3 cartes jouées et 2 repioches par tour, Héroïsme pour les cartes Héroïques ;
-- ennemis Hydra (sbires, brute, tireur) avec intentions affichées ;
-- repousser contre un obstacle, glisser sur la glace, baril explosif.
+- objectif : détruire la bombe Hydra en 6 tours, pendant que des renforts arrivent à chaque tour ;
+- ennemis Hydra avec intentions affichées : sbires, brute qui repousse, artilleur qui bombarde une zone annoncée (à esquiver, et qui touche aussi les ennemis) ;
+- repousser contre un obstacle, glisser sur la glace, barils explosifs ;
+- animations de déplacement, dégâts flottants, flash à l'impact et tremblement d'écran.
 
 ## Comment jouer
 
-- Toucher une carte, puis une case en surbrillance jaune pour la jouer.
+- Glisser une carte sur sa cible pour la jouer (ou toucher la carte, puis une case en surbrillance jaune).
 - Toucher un héros, puis une case en surbrillance verte pour le déplacer (2 cases, une fois par tour).
 - Toucher un ennemi pour voir ses PV et qui il vise. Au-dessus de chaque ennemi : la lettre du héros visé et les dégâts prévus.
+- Les cases rouges sont le prochain tir de l'artilleur ; les cercles « renfort » montrent où arrivent les prochains sbires (un héros posté dessus bloque l'arrivée).
 - « Repiocher » remplace la carte sélectionnée, « Fin de tour » fait jouer les ennemis.
 
 ## Lancer le projet
