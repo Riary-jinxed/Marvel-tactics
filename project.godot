@@ -1,0 +1,29 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="Marvel Tactics"
+run/main_scene="res://scenes/battle.tscn"
+config/features=PackedStringArray("4.4", "Mobile")
+
+[display]
+
+window/size/viewport_width=360
+window/size/viewport_height=640
+window/stretch/mode="canvas_items"
+window/stretch/aspect="keep"
+window/handheld/orientation=1
+
+[rendering]
+
+renderer/rendering_method="mobile"
+textures/canvas_textures/default_texture_filter=0
+textures/vram_compression/import_etc2_astc=true
